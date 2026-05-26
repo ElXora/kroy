@@ -1,57 +1,33 @@
 #!/bin/bash
 
 echo "=================================="
-echo " Pterodactyl Auto Installer"
+echo " Pterodactyl Auto Installer (FIXED)"
 echo "=================================="
 
-read -p "Enter Panel URL (Codespace URL): " APP_URL
-read -p "Enter Admin Username: " ADMIN_USER
-read -p "Enter Admin Email: " ADMIN_EMAIL
-read -s -p "Enter Admin Password: " ADMIN_PASS
+read -p "Panel URL: " APP_URL
+read -p "Admin Username: " ADMIN_USER
+read -p "Admin Email: " ADMIN_EMAIL
+read -s -p "Admin Password: " ADMIN_PASS
 echo
-read -s -p "Enter Database Password: " DB_PASS
+read -s -p "Database Password: " DB_PASS
 echo
 
 mkdir -p ~/pterodactyl/panel
 cd ~/pterodactyl/panel || exit
 
 cat > docker-compose.yml <<EOF
-version: '3.8'
-
-x-common:
-  database:
-    &db-environment
-    MYSQL_PASSWORD: &db-password "$DB_PASS"
-    MYSQL_ROOT_PASSWORD: "$DB_PASS"
-
-  panel:
-    &panel-environment
-    APP_URL: "$APP_URL"
-    APP_TIMEZONE: "UTC"
-    APP_SERVICE_AUTHOR: "$ADMIN_EMAIL"
-    TRUSTED_PROXIES: "*"
-
-  mail:
-    &mail-environment
-    MAIL_FROM: "$ADMIN_EMAIL"
-    MAIL_DRIVER: "smtp"
-    MAIL_HOST: "mail"
-    MAIL_PORT: "1025"
-    MAIL_USERNAME: ""
-    MAIL_PASSWORD: ""
-    MAIL_ENCRYPTION: "true"
-
 services:
   database:
-    image: mariadb:10.5
+    image: mariadb:10.11
     restart: always
     command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: panel
+      MYSQL_USER: pterodactyl
+      MYSQL_PASSWORD: $DB_PASS
+      MYSQL_ROOT_PASSWORD: $DB_PASS
     volumes:
       - "./database:/var/lib/mysql"
-    environment:
-      <<: *db-environment
-      MYSQL_DATABASE: "panel"
-      MYSQL_USER: "pterodactyl"
 
   cache:
     image: redis:alpine
@@ -63,23 +39,31 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    links:
-      - database
-      - cache
-    volumes:
-      - "./var/:/app/var/"
-      - "./logs/:/app/storage/logs"
     environment:
-      <<: [*panel-environment, *mail-environment]
-      DB_PASSWORD: *db-password
-      APP_ENV: "production"
+      APP_URL: "$APP_URL"
+      APP_ENV: production
       APP_ENVIRONMENT_ONLY: "false"
-      CACHE_DRIVER: "redis"
-      SESSION_DRIVER: "redis"
-      QUEUE_DRIVER: "redis"
-      REDIS_HOST: "cache"
-      DB_HOST: "database"
-      DB_PORT: "3306"
+      APP_TIMEZONE: UTC
+      APP_SERVICE_AUTHOR: "$ADMIN_EMAIL"
+
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_DATABASE: panel
+      DB_USERNAME: pterodactyl
+      DB_PASSWORD: $DB_PASS
+
+      # 🔥 FIX SSL ERROR
+      DB_SSL_MODE: disable
+      MYSQL_ATTR_SSL_CA: ""
+
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      QUEUE_DRIVER: redis
+      REDIS_HOST: cache
+
+    volumes:
+      - "./var:/app/var"
+      - "./logs:/app/storage/logs"
 
 networks:
   default:
@@ -88,18 +72,21 @@ networks:
         - subnet: 172.20.0.0/16
 EOF
 
-echo "Starting Docker containers..."
+echo "Starting containers..."
 docker-compose up -d
 
-echo "Waiting for database..."
-sleep 60
+echo "Waiting for database (real check)..."
+until docker-compose exec database mysqladmin ping -h"localhost" --silent; do
+  sleep 2
+done
+
+echo "Database ready!"
 
 echo "Running migrations..."
-docker-compose run --rm panel php artisan migrate --seed --force
+docker-compose exec panel php artisan migrate --seed --force
 
-echo "Creating admin account..."
-
-docker-compose run --rm panel php artisan p:user:make \
+echo "Creating admin user..."
+docker-compose exec panel php artisan p:user:make \
   --email="$ADMIN_EMAIL" \
   --username="$ADMIN_USER" \
   --name-first="Admin" \
@@ -108,7 +95,7 @@ docker-compose run --rm panel php artisan p:user:make \
   --admin=1
 
 echo "=================================="
-echo " Installation Complete!"
+echo " INSTALL COMPLETE"
 echo "=================================="
-echo "Panel URL: $APP_URL"
-echo "Username: $ADMIN_USER"
+echo "URL: $APP_URL"
+echo "User: $ADMIN_USER"
