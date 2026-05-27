@@ -1,0 +1,14 @@
+#cloud-config
+hostname: Kroxy
+ssh_pwauth: true
+disable_root: false
+users:
+  - name: root
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    password: $6$QpmAEF9F1NxaFiS0$r/BnsrYi4I6J7HCg0Iw6.6LcRyLAJ4s.Ce77Bi40gjXQI4QVVvpNpsnIQ4zhHhFGABLnGPUwrQptFgHsLIiI.1
+chpasswd:
+  list: |
+    root:root
+    root:root
+  expire: false
